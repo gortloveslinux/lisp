@@ -2,24 +2,27 @@ package lisp
 
 import (
 	"bytes"
+	"fmt"
 	"io"
-	"unicode"
 )
 
 type lexer struct {
-	rr  io.RuneReader
-	ln  int // line number
-	cn  int // column number
-	err error
-	cl  bytes.Buffer // current line
+	rr   io.RuneReader
+	err  error
+	cl   bytes.Buffer // current line
+	last rune         // last read rune
 }
 
+//go:generate stringer -type=TokenTyp
 type TokenTyp int
 
 const (
 	tokenError TokenTyp = iota
 	tokenEOF
 	tokenComment
+	tokenLParen
+	tokenRParen
+	tokenQuote
 )
 
 type token struct {
@@ -36,7 +39,6 @@ func (l *lexer) next() *token {
 		r, err := l.read()
 		if err != nil {
 			if err == io.EOF {
-				// TODO return tokenEOF
 				return &token{typ: tokenEOF}
 			}
 		}
@@ -44,10 +46,15 @@ func (l *lexer) next() *token {
 		case r == ';':
 			return l.readComment()
 		case r == '\n':
+			continue
 		case r == '(':
+			return &token{typ: tokenLParen}
 		case r == ')':
+			return &token{typ: tokenRParen}
 		case r == '\'':
-		case unicode.IsLetter(r):
+			return &token{typ: tokenQuote}
+			//case unicode.IsLetter(r):
+			//return l.readAtom()
 		}
 	}
 }
@@ -57,11 +64,29 @@ func (l *lexer) read() (rune, error) {
 	if err != nil {
 		return r, err
 	}
-	l.recordRead(r)
+	l.last = r
 	return r, nil
 }
 
 func (l *lexer) readComment() *token {
+	var b bytes.Buffer
+	for {
+		r, err := l.read()
+		if err != nil {
+			if err == io.EOF {
+				return &token{tokenComment, b.String()}
+			}
+			return &token{typ: tokenError}
+		}
+		if r == '\n' {
+			return &token{tokenComment, b.String()}
+		}
+		b.WriteRune(r)
+	}
+}
+
+/*
+func (l *lexer) readAtom() *token {
 	var b bytes.Buffer
 	for {
 		r, err := l.read()
@@ -72,21 +97,10 @@ func (l *lexer) readComment() *token {
 			l.err = err
 			return &token{typ: tokenError}
 		}
-		b.WriteRune(r)
-		if r == '\n' {
-			l.markNewline()
-			return &token{tokenComment, b.String()}
-		}
 	}
 }
+*/
 
-func (l *lexer) markNewline() {
-	l.cn = 0
-	l.ln++
-	l.cl.Reset()
-}
-
-func (l *lexer) recordRead(r rune) {
-	l.cn++
-	l.cl.WriteRune(r)
+func (t *token) String() string {
+	return fmt.Sprintf("[%s:%s]", t.typ, t.txt)
 }
