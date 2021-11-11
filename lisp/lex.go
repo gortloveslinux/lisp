@@ -25,11 +25,12 @@ const (
 	tokenRParen
 	tokenQuote
 	tokenAtom
+	tokenNumber
 )
 
 type token struct {
 	typ TokenTyp
-	txt string
+	val interface{}
 }
 
 func newLexer(rr io.RuneScanner) *lexer {
@@ -57,10 +58,12 @@ func (l *lexer) next() *token {
 			return &token{typ: tokenQuote}
 		case unicode.IsLetter(r):
 			return l.readAtom()
+		//case unicode.IsNumber(r):
+		//	return l.readNumber()
 		case unicode.IsSpace(r):
 			continue
 		default:
-			return &token{typ: tokenError, txt: fmt.Sprintf("Unexpected token [%s]", string(r))}
+			return &token{typ: tokenError, val: fmt.Sprintf("Unexpected token [%s]", string(r))}
 		}
 	}
 }
@@ -112,9 +115,9 @@ func (l *lexer) readAtom() *token {
 		switch {
 		case err == io.EOF:
 			if unicode.IsLetter(l.last) || unicode.IsNumber(l.last) {
-				return &token{typ: tokenAtom, txt: b.String()}
+				return &token{typ: tokenAtom, val: b.String()}
 			} else {
-				return &token{typ: tokenError, txt: fmt.Sprintf("Invalid Atom [%s]", b.String())}
+				return &token{typ: tokenError, val: fmt.Sprintf("Invalid Atom [%s]", b.String())}
 			}
 		case unicode.IsLetter(r), unicode.IsDigit(r), r == '-', r == '_':
 			b.WriteRune(r)
@@ -125,14 +128,14 @@ func (l *lexer) readAtom() *token {
 				return &token{typ: tokenError}
 			}
 			if unicode.IsLetter(l.current) || unicode.IsNumber(l.current) {
-				return &token{typ: tokenAtom, txt: b.String()}
+				return &token{typ: tokenAtom, val: b.String()}
 			} else {
-				return &token{typ: tokenError, txt: fmt.Sprintf("Invalid Atom [%s]", b.String())}
+				return &token{typ: tokenError, val: fmt.Sprintf("Invalid Atom [%s]", b.String())}
 			}
 		}
 	}
 }
 
 func (t *token) String() string {
-	return fmt.Sprintf("[%s:%s]", t.typ, t.txt)
+	return fmt.Sprintf("[%s:%v]", t.typ, t.val)
 }
