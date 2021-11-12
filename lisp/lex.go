@@ -4,16 +4,21 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"log"
+	"os"
 	"strconv"
 	"unicode"
 )
 
 type lexer struct {
-	rr            io.RuneScanner
-	err           error
-	cl            bytes.Buffer // current line
-	current, last rune         // last read rune
+	rr         io.RuneScanner
+	curr, last rune // last read rune
+	peeking    bool
+	log        *log.Logger
 }
+
+var EOFRUNE = rune(-1)
+var ERRRUNE = rune(-2)
 
 //go:generate stringer -type=TokenTyp
 type TokenTyp int
@@ -35,144 +40,142 @@ type token struct {
 }
 
 func newLexer(rr io.RuneScanner) *lexer {
-	return &lexer{rr: rr}
+	l := log.New(os.Stderr, "", 0)
+	lex := &lexer{rr: rr, log: l}
+	return lex
 }
 
 func (l *lexer) next() *token {
 	for {
-		r, err := l.read()
-		if err != nil {
-			if err == io.EOF {
-				return &token{typ: tokenEOF}
-			}
-		}
+		r := l.peek()
 		switch {
+		case r == EOFRUNE:
+			return &token{typ: tokenEOF}
+		case r == ERRRUNE:
+			return &token{typ: tokenError}
 		case r == ';':
 			return l.readComment()
-		case r == '\n':
+		case r == '\n', unicode.IsSpace(r):
+			_ = l.read()
 			continue
 		case r == '(':
+			_ = l.read()
 			return &token{typ: tokenLParen}
 		case r == ')':
+			_ = l.read()
 			return &token{typ: tokenRParen}
 		case r == '\'':
+			_ = l.read()
 			return &token{typ: tokenQuote}
 		case unicode.IsLetter(r):
 			return l.readAtom()
 		case unicode.IsNumber(r):
 			return l.readNumber()
-		case unicode.IsSpace(r):
-			continue
 		default:
-			return &token{typ: tokenError, val: fmt.Sprintf("Unexpected token [%s]", string(r))}
+			_ = l.read()
+			return &token{typ: tokenError, val: fmt.Sprintf("Unexpected token[%s]", string(r))}
 		}
 	}
-}
-
-func (l *lexer) read() (rune, error) {
-	var err error
-	l.last = l.current
-	l.current, _, err = l.rr.ReadRune()
-	if err != nil {
-		return l.current, err
-	}
-	return l.current, nil
-}
-
-func (l *lexer) unread() error {
-	err := l.rr.UnreadRune()
-	if err != nil {
-		return err
-	}
-	l.current = l.last
-	l.last = 0
-	return nil
 }
 
 // Comments ;.*\n
 func (l *lexer) readComment() *token {
 	var b bytes.Buffer
 	for {
-		r, err := l.read()
-		if err != nil {
-			if err == io.EOF {
-				return &token{tokenComment, b.String()}
-			}
-			return &token{typ: tokenError}
-		}
-		if r == '\n' {
+		r := l.read()
+		switch r {
+		case EOFRUNE, '\n':
 			return &token{tokenComment, b.String()}
+		case ERRRUNE:
+			return &token{typ: tokenError}
+		default:
+			b.WriteRune(r)
 		}
-		b.WriteRune(r)
 	}
 }
 
-// Atoms [A-Za-z][A-Za-z0-9-_]*[A-Za-z]
+// Atoms [A-Za-z][A-Za-z0-9-_]*[A-Za-z0-9]
 func (l *lexer) readAtom() *token {
 	var b bytes.Buffer
-	b.WriteRune(l.current)
+	r := l.read()
+	b.WriteRune(r)
 	for {
-		r, err := l.read()
+		r := l.peek()
 		switch {
-		case err == io.EOF:
-			if unicode.IsLetter(l.last) || unicode.IsNumber(l.last) {
-				return &token{typ: tokenAtom, val: b.String()}
-			} else {
-				return &token{typ: tokenError, val: fmt.Sprintf("Invalid Atom [%s]", b.String())}
-			}
 		case unicode.IsLetter(r), unicode.IsDigit(r), r == '-', r == '_':
+			_ = l.read()
 			b.WriteRune(r)
 		default:
-			err := l.unread()
-			if err != nil {
-				l.err = err
-				return &token{typ: tokenError}
-			}
-			if unicode.IsLetter(l.current) || unicode.IsNumber(l.current) {
+			if unicode.IsLetter(l.last) || unicode.IsNumber(l.last) {
 				return &token{typ: tokenAtom, val: b.String()}
-			} else {
-				return &token{typ: tokenError, val: fmt.Sprintf("Invalid Atom [%s]", b.String())}
 			}
+			return &token{typ: tokenError, val: fmt.Sprintf("Invalid Atom[%s]", b.String())}
 		}
 	}
 }
 
 func (l *lexer) readNumber() *token {
 	var b bytes.Buffer
-	b.WriteRune(l.current)
+	r := l.read()
+	b.WriteRune(r)
 	for {
-		r, err := l.read()
+		r := l.peek()
 		switch {
-		case err == io.EOF:
-			if unicode.IsNumber(l.last) {
-				n, err := strconv.Atoi(b.String())
-				if err != nil {
-					return &token{typ: tokenError, val: fmt.Sprintf("Invalid Number [%s]: %s", b.String(), err.Error())}
-				}
-				return &token{typ: tokenNumber, val: n}
-			}
 		case unicode.IsNumber(r):
+			_ = l.read()
 			b.WriteRune(r)
 		default:
-			err := l.unread()
-			if err != nil {
-				l.err = err
-				return &token{typ: tokenError}
-			}
-			if unicode.IsNumber(l.current) {
+			if r == '\n' || r == '(' || r == ')' || r == ' ' {
 				n, err := strconv.Atoi(b.String())
 				if err != nil {
 					return &token{typ: tokenError, val: fmt.Sprintf("Invalid Number [%s]: %s", b.String(), err.Error())}
 				}
 				return &token{typ: tokenNumber, val: n}
-			} else {
-				return &token{typ: tokenError, val: fmt.Sprintf("Invalid Number [%s]: %s", b.String(), err.Error())}
 			}
+			return &token{typ: tokenError, val: fmt.Sprintf("Invalid Number [%s]", b.String())}
 		}
-
 	}
 }
 
+func (l *lexer) read() rune {
+	l.last = l.curr
+	if l.peeking {
+		l.peeking = false
+		return l.curr
+	}
+	r, _, err := l.rr.ReadRune()
+	if err != nil {
+		if err == io.EOF {
+			l.curr = EOFRUNE
+			return EOFRUNE
+		}
+		l.log.Printf("Error reading rune: %s", err)
+		l.curr = ERRRUNE
+		return ERRRUNE
+	}
+	l.curr = r
+	return r
+}
+
+func (l *lexer) peek() rune {
+	if l.peeking {
+		return l.curr
+	}
+	l.peeking = true
+	r, _, err := l.rr.ReadRune()
+	if err != nil {
+		if err == io.EOF {
+			l.curr = EOFRUNE
+			return EOFRUNE
+		}
+		l.log.Printf("Error reading rune: %s", err)
+		l.curr = ERRRUNE
+		return ERRRUNE
+	}
+	l.curr = r
+	return r
+}
+
 func (t *token) String() string {
-	return fmt.Sprintf("[%s:%v(%T)]", t.typ, t.val, t.val)
+	return fmt.Sprintf("[%s<%T>:%v]", t.typ, t.val, t.val)
 }

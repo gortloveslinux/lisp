@@ -17,9 +17,9 @@ func TestComment(t *testing.T) {
 ; This too is a comment
 ;;;;
 `, []*token{
-			&token{typ: tokenComment, val: " This is a comment"},
-			&token{typ: tokenComment, val: " This too is a comment"},
-			&token{typ: tokenComment, val: ";;;"},
+			&token{typ: tokenComment, val: "; This is a comment"},
+			&token{typ: tokenComment, val: "; This too is a comment"},
+			&token{typ: tokenComment, val: ";;;;"},
 			&token{typ: tokenEOF},
 		}},
 	}
@@ -43,7 +43,7 @@ func TestParen(t *testing.T) {
 		{`(;This is my opening comment
 			))))`, []*token{
 			&token{typ: tokenLParen},
-			&token{typ: tokenComment, val: "This is my opening comment"},
+			&token{typ: tokenComment, val: ";This is my opening comment"},
 			&token{typ: tokenRParen},
 			&token{typ: tokenRParen},
 			&token{typ: tokenRParen},
@@ -58,9 +58,9 @@ func TestParen(t *testing.T) {
 
 func TestAtom(t *testing.T) {
 	tests := []testData{
-		{`(test())`, []*token{
+		{`(t())`, []*token{
 			&token{typ: tokenLParen},
-			&token{typ: tokenAtom, val: "test"},
+			&token{typ: tokenAtom, val: "t"},
 			&token{typ: tokenLParen},
 			&token{typ: tokenRParen},
 			&token{typ: tokenRParen},
@@ -74,7 +74,7 @@ func TestAtom(t *testing.T) {
 			&token{typ: tokenAtom, val: "foo_roo"},
 			&token{typ: tokenRParen},
 			&token{typ: tokenRParen},
-			&token{typ: tokenComment, val: "This is a comment"},
+			&token{typ: tokenComment, val: ";This is a comment"},
 			&token{typ: tokenEOF}},
 		},
 		{`(test(test_))`, []*token{
@@ -88,6 +88,10 @@ func TestAtom(t *testing.T) {
 			&token{typ: tokenAtom, val: "t-e123_s4"},
 			&token{typ: tokenLParen},
 			&token{typ: tokenError}},
+		},
+		{`test`, []*token{
+			&token{typ: tokenAtom, val: "test"},
+			&token{typ: tokenEOF}},
 		},
 	}
 
@@ -126,7 +130,7 @@ func runTokenTest(td []testData) error {
 		var tks []*token
 		getTokens(lxr, &tks)
 		if cmpTokenSlice(tst.expected, tks) == false {
-			return fmt.Errorf("For test string %s\nExpected:\t%v\nGot:\t\t\t\t%v\n", tst.test, tst.expected, tks)
+			return fmt.Errorf("For test string %s\nExpected:\t%v\nGot:\t\t%v\n", tst.test, tst.expected, tks)
 		}
 	}
 	return nil
