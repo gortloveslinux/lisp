@@ -96,6 +96,29 @@ func TestAtom(t *testing.T) {
 	}
 }
 
+func TestNumber(t *testing.T) {
+	tests := []testData{
+		{`(123())`, []*token{
+			&token{typ: tokenLParen},
+			&token{typ: tokenNumber, val: 123},
+			&token{typ: tokenLParen},
+			&token{typ: tokenRParen},
+			&token{typ: tokenRParen},
+			&token{typ: tokenEOF}},
+		},
+		{`(123(4s4
+	))`, []*token{
+			&token{typ: tokenLParen},
+			&token{typ: tokenNumber, val: 123},
+			&token{typ: tokenLParen},
+			&token{typ: tokenError}},
+		},
+	}
+	if err := runTokenTest(tests); err != nil {
+		t.Error(err)
+	}
+}
+
 func runTokenTest(td []testData) error {
 	for _, tst := range td {
 		sr := strings.NewReader(tst.test)
@@ -126,16 +149,22 @@ func cmpTokenSlice(a []*token, b []*token) bool {
 			case tokenError:
 				//testing done return early
 				return true
-				//No val tokens
-			case tokenEOF, tokenLParen, tokenRParen, tokenQuote:
-				continue
-				//String val tokens
 			case tokenComment, tokenAtom:
+				//String val tokens
 				x, xok := v.val.(string)
 				y, yok := b[i].val.(string)
 				if xok != true || yok != true || x != y {
 					return false
 				}
+			case tokenNumber:
+				x, xok := v.val.(int)
+				y, yok := b[i].val.(int)
+				if xok != true || yok != true || x != y {
+					return false
+				}
+			case tokenEOF, tokenLParen, tokenRParen, tokenQuote:
+				//No val tokens
+				continue
 			}
 		}
 	}

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"strconv"
 	"unicode"
 )
 
@@ -58,8 +59,8 @@ func (l *lexer) next() *token {
 			return &token{typ: tokenQuote}
 		case unicode.IsLetter(r):
 			return l.readAtom()
-		//case unicode.IsNumber(r):
-		//	return l.readNumber()
+		case unicode.IsNumber(r):
+			return l.readNumber()
 		case unicode.IsSpace(r):
 			continue
 		default:
@@ -136,6 +137,42 @@ func (l *lexer) readAtom() *token {
 	}
 }
 
+func (l *lexer) readNumber() *token {
+	var b bytes.Buffer
+	b.WriteRune(l.current)
+	for {
+		r, err := l.read()
+		switch {
+		case err == io.EOF:
+			if unicode.IsNumber(l.last) {
+				n, err := strconv.Atoi(b.String())
+				if err != nil {
+					return &token{typ: tokenError, val: fmt.Sprintf("Invalid Number [%s]: %s", b.String(), err.Error())}
+				}
+				return &token{typ: tokenNumber, val: n}
+			}
+		case unicode.IsNumber(r):
+			b.WriteRune(r)
+		default:
+			err := l.unread()
+			if err != nil {
+				l.err = err
+				return &token{typ: tokenError}
+			}
+			if unicode.IsNumber(l.current) {
+				n, err := strconv.Atoi(b.String())
+				if err != nil {
+					return &token{typ: tokenError, val: fmt.Sprintf("Invalid Number [%s]: %s", b.String(), err.Error())}
+				}
+				return &token{typ: tokenNumber, val: n}
+			} else {
+				return &token{typ: tokenError, val: fmt.Sprintf("Invalid Number [%s]: %s", b.String(), err.Error())}
+			}
+		}
+
+	}
+}
+
 func (t *token) String() string {
-	return fmt.Sprintf("[%s:%v]", t.typ, t.val)
+	return fmt.Sprintf("[%s:%v(%T)]", t.typ, t.val, t.val)
 }
